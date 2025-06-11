@@ -1,5 +1,5 @@
 import streamlit as st
-st.set_page_config(page_title="감정 기반 노래 추천기", layout="centered")  # 반드시 최상단
+st.set_page_config(page_title="감정 기반 노래 추천기", layout="centered")
 
 import pandas as pd
 import numpy as np
@@ -13,7 +13,7 @@ def recommend_by_emotion(df, emotion_label, top_n=5):
     filtered = filtered.sort_values(by="Popularity", ascending=False)
     return filtered[["song", "artist", "emotion", "Popularity"]].head(top_n)
 
-# ✅ 모델 및 데이터 불러오기
+# ✅ 데이터 불러오기
 @st.cache_resource
 def load_resources():
     file_path = "light_spotify_dataset.csv"
@@ -23,17 +23,18 @@ def load_resources():
     df = pd.read_csv(file_path)
     return df
 
+# ✅ Huggingface 감정 분석 모델 로딩
 @st.cache_resource
 def load_sentiment_model():
-    model_name = "beomi/KcELECTRA-base"  # 또는 fine-tuned 감정 모델로 교체 가능
+    model_name = "nlp04/korean_sentiment"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=3)
+    model = AutoModelForSequenceClassification.from_pretrained(model_name)
     return tokenizer, model
 
 df = load_resources()
 tokenizer, model = load_sentiment_model()
 
-# ✅ Huggingface 감정 분류 함수
+# ✅ 감정 분류 함수
 def classify_emotion_huggingface(text):
     inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
     with torch.no_grad():
@@ -42,42 +43,48 @@ def classify_emotion_huggingface(text):
     label_idx = torch.argmax(probs, dim=1).item()
 
     label_map = {
-        0: "sadness",
-        1: "joy",
-        2: "anger"
+        0: "negative",  # 슬픔/분노
+        1: "neutral",   # 평온/무표정
+        2: "positive"   # 기쁨/신남
     }
     return label_map.get(label_idx, "unknown")
+
+# ✅ 감정 라벨 매핑 (데이터셋 기준에 따라 조정 가능)
+emotion_map = {
+    "positive": "joy",
+    "negative": "sadness",
+    "neutral": "calm"
+}
 
 # ✅ Streamlit UI 구성
 st.title("🎧 문장 기반 감정 분석 + 노래 추천")
 
 st.markdown("""
-자연어 문장으로 기분이나 상황을 입력하면,  
-🤖 감정을 분석하고 🎵 해당 감정에 어울리는 노래를 추천해드립니다.
+자연어 문장으로 현재 기분이나 상황을 적어주세요.  
+🤖 감정을 분석하고 🎵 어울리는 노래를 추천해드릴게요.
 """)
 
-# ✅ 사용자 입력
 user_input = st.text_area("🗣️ 지금 기분이나 상황을 적어보세요", height=100)
 
-# ✅ 추천 버튼
 if st.button("🎯 감정 분석 후 추천"):
     if user_input.strip() == "":
-        st.warning("먼저 문장을 입력해주세요.")
+        st.warning("문장을 먼저 입력해주세요.")
     else:
         with st.spinner("감정 분석 중..."):
-            emotion = classify_emotion_huggingface(user_input)
+            base_emotion = classify_emotion_huggingface(user_input)
+            mapped_emotion = emotion_map.get(base_emotion, "unknown")
 
-        st.write(f"🧠 감정 분석 결과: **`{emotion}`**")
+        st.write(f"🧠 감정 분석 결과: **`{base_emotion}`** → 추천 감정 그룹: `{mapped_emotion}`")
 
-        if emotion == "unknown":
-            st.error("❌ 감정을 인식하지 못했습니다. 다른 표현을 시도해보세요.")
+        if mapped_emotion == "unknown":
+            st.error("❌ 감정을 인식하지 못했습니다. 다른 표현을 사용해보세요.")
         else:
-            rec_df = recommend_by_emotion(df, emotion, top_n=5)
+            rec_df = recommend_by_emotion(df, mapped_emotion, top_n=5)
             if not rec_df.empty:
                 st.success("🎵 추천곡 리스트:")
                 st.dataframe(rec_df)
             else:
-                st.warning(f"추천 가능한 노래가 없습니다. `{emotion}` 감정 곡이 부족할 수 있습니다.")
+                st.warning(f"추천 가능한 노래가 없습니다. `{mapped_emotion}` 감정 곡이 부족할 수 있습니다.")
 
 st.markdown("---")
 st.caption("Made with ❤️ using Huggingface + Streamlit")
